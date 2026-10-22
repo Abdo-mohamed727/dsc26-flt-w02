@@ -216,7 +216,7 @@ void main() {
       expect(viewModel.visibleAlerts, hasLength(4));
     });
 
-    test('acknowledge is optimistic and skips unknown ids', () async {
+    test('acknowledge updates after success and skips unknown ids', () async {
       await viewModel.load();
       var notifications = 0;
       viewModel.addListener(() => notifications++);
@@ -224,16 +224,38 @@ void main() {
       await viewModel.acknowledge('missing');
       expect(repository.acknowledgeCalls, isEmpty);
       expect(notifications, 0);
+      expect(viewModel.unacknowledgedCriticalCount, 1);
 
       final pending = viewModel.acknowledge('crit');
       expect(repository.acknowledgeCalls, ['crit']);
+      expect(notifications, 0);
+      expect(viewModel.unacknowledgedCriticalCount, 1);
+      await pending;
+      expect(notifications, 1);
       expect(
         viewModel.visibleAlerts.firstWhere((a) => a.id == 'crit').acknowledged,
         isTrue,
       );
       expect(viewModel.unacknowledgedCriticalCount, 0);
-      expect(notifications, 1);
-      await pending;
+    });
+
+    test('failed acknowledge does not update or notify', () async {
+      await viewModel.load();
+      repository.acknowledgeException = StateError('acknowledgement failed');
+      var notifications = 0;
+      viewModel.addListener(() => notifications++);
+
+      await expectLater(
+        viewModel.acknowledge('crit'),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(notifications, 0);
+      expect(viewModel.unacknowledgedCriticalCount, 1);
+      expect(
+        viewModel.visibleAlerts.firstWhere((a) => a.id == 'crit').acknowledged,
+        isFalse,
+      );
     });
 
     test('load failure keeps old data and sets error', () async {
@@ -249,8 +271,10 @@ void main() {
     testWidgets('lists alerts, searches, and acknowledges', (tester) async {
       final repository = InMemoryAlertRepository(
         alerts: [
+          _alert(id: 'c1', en: 'Critical 1', severity: Severity.critical),
+          _alert(id: 'c2', en: 'Critical 2', severity: Severity.critical),
+          _alert(id: 'c3', en: 'Critical 3', severity: Severity.critical),
           _alert(id: 'm', en: 'Metformin', severity: Severity.high),
-          _alert(id: 'i', en: 'Insulin', severity: Severity.critical),
         ],
       );
 
@@ -259,21 +283,36 @@ void main() {
 
       expect(find.text('Stock alerts'), findsOneWidget);
       expect(find.text('Metformin'), findsOneWidget);
-      expect(find.text('Insulin'), findsOneWidget);
-      expect(find.byKey(const Key('unacknowledgedCriticalCount')), findsOneWidget);
-      expect(find.text('1'), findsWidgets);
+      expect(find.text('Critical 1'), findsOneWidget);
+      expect(
+        find.byKey(const Key('unacknowledgedCriticalCount')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('unacknowledgedCriticalCount')))
+            .data,
+        '3',
+      );
+      expect(find.text('3'), findsOneWidget);
 
-      await tester.enterText(find.byKey(const Key('searchField')), 'insulin');
+      await tester.enterText(find.byKey(const Key('searchField')), 'critical');
       await tester.pumpAndSettle();
-      expect(find.text('Insulin'), findsOneWidget);
+      expect(find.text('Critical 1'), findsOneWidget);
       expect(find.text('Metformin'), findsNothing);
 
       await tester.enterText(find.byKey(const Key('searchField')), '');
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('acknowledge_i')));
-      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('acknowledge_c1')));
+      await tester.pump();
       expect(find.text('Looked at'), findsOneWidget);
-      expect(repository.acknowledgeCalls, ['i']);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('unacknowledgedCriticalCount')))
+            .data,
+        '2',
+      );
+      expect(repository.acknowledgeCalls, ['c1']);
     });
   });
 }

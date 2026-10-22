@@ -5,8 +5,7 @@ import '../../../domain/alert_rules.dart';
 import '../../../domain/models/stock_alert.dart';
 
 class AlertsViewModel extends ChangeNotifier {
-  AlertsViewModel({required AlertRepository repository})
-    : _repository = repository;
+  AlertsViewModel({required this._repository});
 
   final AlertRepository _repository;
   List<StockAlert> _alerts = const [];
@@ -73,21 +72,28 @@ class AlertsViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> acknowledge(String id) {
+  Future<void> acknowledge(String id) async {
     final index = _alerts.indexWhere((alert) => alert.id == id);
     if (index < 0) {
-      return Future<void>.value();
+      return;
     }
 
-    final pending = _repository.acknowledge(id);
-    final current = _alerts[index];
+    await _repository.acknowledge(id);
+    final currentIndex = _alerts.indexWhere((alert) => alert.id == id);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    final current = _alerts[currentIndex];
     if (!current.acknowledged) {
       _alerts = [
         for (var i = 0; i < _alerts.length; i++)
-          if (i == index) current.copyWith(acknowledged: true) else _alerts[i],
+          if (i == currentIndex)
+            current.copyWith(acknowledged: true)
+          else
+            _alerts[i],
       ];
       notifyListeners();
     }
-    return pending;
   }
 }
